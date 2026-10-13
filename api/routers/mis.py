@@ -36,7 +36,7 @@ def _fetch_mis_rows(district: str, start: str, end: str, name: str) -> list[dict
     if name and name != "All":
         query = query.eq("name", name)
 
-    resp = query.limit(10000).execute()
+    resp = query.execute()
     return resp.data or []
 
 

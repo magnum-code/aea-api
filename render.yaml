@@ -11,3 +11,9 @@ services:
         sync: false
       - key: ORS_API_KEY
         sync: false
+      - key: JWT_SECRET                    # same value as JWT_SECRET on Vercel
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON   # same JSON as the ETL secret (for Refresh / live approvals)
+        sync: false
+      - key: ALLOWED_ORIGINS               # e.g. https://your-site.vercel.app
+        sync: false
