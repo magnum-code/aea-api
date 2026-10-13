@@ -12,6 +12,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 
 from api.config import get_supabase, DISTRICTS
+from api.db import fetch_all, first_value
 from api.metrics import (
     compute_mis_metrics, count_stem, build_heatmap,
     compute_member_stats, compute_monthly_stats, compute_school_stats,
@@ -27,17 +28,17 @@ def _fetch_mis_rows(district: str, start: str, end: str, name: str) -> list[dict
     """
     sb = get_supabase()
 
-    query = sb.table("mis_sessions").select("*").eq("district", district)
+    def make():
+        query = sb.table("mis_sessions").select("*").eq("district", district)
+        if start:
+            query = query.gte("session_date", start)
+        if end:
+            query = query.lte("session_date", end)
+        if name and name != "All":
+            query = query.eq("name", name)
+        return query
 
-    if start:
-        query = query.gte("session_date", start)
-    if end:
-        query = query.lte("session_date", end)
-    if name and name != "All":
-        query = query.eq("name", name)
-
-    resp = query.execute()
-    return resp.data or []
+    return fetch_all(make)
 
 
 def _get_config(district: str) -> dict:
@@ -48,25 +49,13 @@ def _get_config(district: str) -> dict:
     sb = get_supabase()
 
     # Get distinct names
-    names_resp = (
-        sb.table("mis_sessions")
-        .select("name")
-        .eq("district", district)
-        .execute()
-    )
-    names = sorted({r["name"] for r in (names_resp.data or []) if r.get("name")})
+    names_rows = fetch_all(lambda: sb.table("mis_sessions").select("name").eq("district", district))
+    names = sorted({r["name"] for r in names_rows if r.get("name")})
 
     # Get date range
-    range_resp = (
-        sb.table("mis_sessions")
-        .select("session_date")
-        .eq("district", district)
-        .order("session_date", desc=False)
-        .execute()
-    )
-    dates = [r["session_date"] for r in (range_resp.data or []) if r.get("session_date")]
-    min_date = dates[0]  if dates else ""
-    max_date = dates[-1] if dates else ""
+    dq = lambda: sb.table("mis_sessions").select("session_date").eq("district", district)
+    min_date = first_value(dq, "session_date")
+    max_date = first_value(dq, "session_date", desc=True)
 
     return {"names": names, "minDate": min_date, "maxDate": max_date}
 

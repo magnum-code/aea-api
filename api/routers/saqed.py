@@ -21,6 +21,7 @@ from api import jsrt as js
 from api import snapshots
 from api.auth import current_user, has_access, require
 from api.config import get_supabase
+from api.db import fetch_all
 from api.logic import saqed as logic
 from api.sheets_typed import GROUPS
 
@@ -104,7 +105,7 @@ def _approved_rows(sb) -> list[dict]:
                 return []
         else:
             return []
-    return sb.table('saqed_approved_conveyance').select('record').order('id').execute().data or []
+    return fetch_all(lambda: sb.table('saqed_approved_conveyance').select('record'))
 
 
 @router.get('/approved')

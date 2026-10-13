@@ -15,6 +15,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 
 from api.config import get_supabase, DISTRICTS, DISTRICT_LABELS
+from api.db import fetch_all, first_value
 from api.metrics import count_days_in_range, each_date_in_range
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
@@ -22,55 +23,43 @@ router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
 def _fetch_att_rows(district: str, start: str, end: str, name: str) -> list[dict]:
     sb = get_supabase()
-    query = sb.table("attendance_submissions").select("*")
 
-    if district and district != "All":
-        query = query.eq("district", district)
-    if start:
-        query = query.gte("submission_date", start)
-    if end:
-        query = query.lte("submission_date", end)
-    if name and name != "All":
-        query = query.eq("name", name)
+    def make():
+        query = sb.table("attendance_submissions").select("*")
+        if district and district != "All":
+            query = query.eq("district", district)
+        if start:
+            query = query.gte("submission_date", start)
+        if end:
+            query = query.lte("submission_date", end)
+        if name and name != "All":
+            query = query.eq("name", name)
+        return query
 
-    resp = query.execute()
-    return resp.data or []
+    return fetch_all(make)
 
 
 def _fetch_all_rows_for_roster(districts: list[str]) -> list[dict]:
     """Fetch all rows (no date filter) for roster building."""
     sb = get_supabase()
-    query = sb.table("attendance_submissions").select("name,district,submission_date")
-    if len(districts) < 4:
-        # Filter by districts
-        query = query.in_("district", districts)
-    resp = query.execute()
-    return resp.data or []
+    def make():
+        query = sb.table("attendance_submissions").select("name,district,submission_date")
+        if len(districts) < 4:
+            query = query.in_("district", districts)
+        return query
+    return fetch_all(make)
 
 
 def _get_config(districts: list[str]) -> dict:
     """Matches getAttendanceConfig() in Attendance.gs."""
     sb = get_supabase()
 
-    names_resp = (
-        sb.table("attendance_submissions")
-        .select("name")
-        .in_("district", districts)
-        .execute()
-    )
-    names = sorted({r["name"] for r in (names_resp.data or []) if r.get("name")})
+    names_rows = fetch_all(lambda: sb.table("attendance_submissions").select("name").in_("district", districts))
+    names = sorted({r["name"] for r in names_rows if r.get("name")})
 
-    dates_resp = (
-        sb.table("attendance_submissions")
-        .select("submission_date")
-        .in_("district", districts)
-        .not_.is_("submission_date", "null")
-        .order("submission_date")
-        .execute()
-    )
-    dates    = [r["submission_date"] for r in (dates_resp.data or []) if r.get("submission_date")]
-    min_date = dates[0]  if dates else ""
-    max_date = dates[-1] if dates else ""
+    dq = lambda: sb.table("attendance_submissions").select("submission_date").in_("district", districts)
+    min_date = first_value(dq, "submission_date")
+    max_date = first_value(dq, "submission_date", desc=True)
 
     return {
         "success":   True,
@@ -191,14 +180,16 @@ def _build_missing(districts: list[str], start: str, end: str, name: str) -> dic
 
     # Who submitted per date (from filtered rows)
     sb = get_supabase()
-    q = (sb.table("attendance_submissions")
-         .select("name,district,submission_date")
-         .in_("district", districts)
-         .gte("submission_date", start)
-         .lte("submission_date", end))
-    if name and name != "All":
-        q = q.eq("name", name)
-    sub_rows = q.execute().data or []
+    def make_sub():
+        q = (sb.table("attendance_submissions")
+             .select("name,district,submission_date")
+             .in_("district", districts)
+             .gte("submission_date", start)
+             .lte("submission_date", end))
+        if name and name != "All":
+            q = q.eq("name", name)
+        return q
+    sub_rows = fetch_all(make_sub)
 
     submitted_by_date: dict[str, set] = {}
     for r in sub_rows:

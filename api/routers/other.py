@@ -10,6 +10,7 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from api.config import get_supabase
+from api.db import fetch_all, first_value
 
 router = APIRouter(tags=["Other"])
 
@@ -26,8 +27,7 @@ def get_route_init():
     import os
     ors_key = os.environ.get("ORS_API_KEY", "")
     sb = get_supabase()
-    resp = sb.table("route_schools").select("*").execute()
-    schools = resp.data or []
+    schools = fetch_all(lambda: sb.table("route_schools").select("*"))
     return {"orsApiKey": ors_key, "schools": schools}
 
 
